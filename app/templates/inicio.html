@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>Bienvenido</h1>
+<div class="card">
+  {% if session.rol == 'administrador' %}
+    <p>Como administrador podes gestionar torneos, jugadores, equipos y planteles, complejos y canchas,
+       partidos, planillas, sanciones y ver los reportes.</p>
+  {% else %}
+    <p>Como planillero podes ver el fixture y registrar planillas, goles y tarjetas de los partidos.</p>
+  {% endif %}
+  <a class="btn" href="{{ url_for('partidos') }}">Ir a partidos</a>
+</div>
+{% endblock %}

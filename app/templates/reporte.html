@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>{{ titulo }}</h1>
+<form method="get" class="card">
+  <label>Torneo
+    <select name="torneo">
+      {% for v, t in torneos %}<option value="{{ v }}" {% if v|string == torneo %}selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select></label>
+  {% if 'R11' in titulo %}
+  <label>Fecha del torneo <input type="number" name="fecha" min="1" value="{{ fecha }}"></label>
+  {% endif %}
+  <button>Actualizar</button>
+</form>
+{% if filas %}
+<table>
+  <tr>{% for c in columnas %}<th>{{ c }}</th>{% endfor %}</tr>
+  {% for f in filas %}<tr>{% for c in columnas %}<td>{{ f[c] }}</td>{% endfor %}</tr>{% endfor %}
+</table>
+{% else %}<p class="vacio">El reporte no devolvio datos para este torneo.</p>{% endif %}
+<a class="btn" href="{{ url_for('reportes') }}">Volver a reportes</a>
+{% endblock %}

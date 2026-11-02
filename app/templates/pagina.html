@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1>{{ titulo }}</h1>
+{% if subtitulo %}<p class="sub">{{ subtitulo }}</p>{% endif %}
+
+{% for f in formularios %}
+<form method="post" action="{{ f.action }}" class="card">
+  <h3>{{ f.titulo }}</h3>
+  {% for c in f.campos %}
+    {% if c.tipo == 'select' %}
+      <label>{{ c.label }}
+        <select name="{{ c.name }}" required>
+          {% for v, t in c.opciones %}
+            <option value="{{ v }}" {% if c.valor|string == v|string %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select></label>
+    {% elif c.tipo == 'checkbox' %}
+      <label>{{ c.label }} <input type="checkbox" name="{{ c.name }}" value="1"></label>
+    {% else %}
+      <label>{{ c.label }}
+        <input type="{{ c.tipo }}" name="{{ c.name }}" value="{{ c.valor }}" {{ c.extra|safe }}></label>
+    {% endif %}
+  {% endfor %}
+  <button>{{ f.boton }}</button>
+</form>
+{% endfor %}
+
+{% for t in tablas %}
+  <h3>{{ t.titulo }}</h3>
+  {% if t.filas %}
+  <table>
+    <tr>{% for c in t.columnas %}<th>{{ c }}</th>{% endfor %}{% if t.con_acciones %}<th></th>{% endif %}</tr>
+    {% for fila in t.filas %}
+    <tr>
+      {% for c in t.columnas %}<td>{{ fila[c] }}</td>{% endfor %}
+      {% if t.con_acciones %}
+      <td>
+        {% for a in fila._acciones %}
+          {% if a.metodo == 'get' %}
+            <a class="btn" href="{{ a.url }}">{{ a.label }}</a>
+          {% else %}
+            <form method="post" action="{{ a.url }}" class="inline"
+                  {% if a.confirmar %}onsubmit="return confirm('Confirmar la accion?')"{% endif %}>
+              {% for k, v in a.datos.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+              <button>{{ a.label }}</button>
+            </form>
+          {% endif %}
+        {% endfor %}
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="vacio">Sin datos.</p>{% endif %}
+{% endfor %}
+{% endblock %}
