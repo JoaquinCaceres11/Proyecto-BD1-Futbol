@@ -39,7 +39,7 @@ def register_sanciones_routes(app):
         form = formulario("Nueva sancion disciplinaria", url_for("sanciones"), [
             campo("ci_jugador", "Jugador", "select", opciones(
                 "SELECT DISTINCT j.ci AS valor, CONCAT(j.apellido, ', ', j.nombre) AS texto "
-                "FROM jugador j JOIN equipo_jugador_torneo ejt ON ejt.ci_jugador = j.ci ORDER BY j.apellido")),
+                "FROM jugador j JOIN equipo_jugador_torneo ejt ON ejt.ci_jugador = j.ci ORDER BY texto")),
             campo("id_torneo", "Torneo", "select", opciones("SELECT id_torneo AS valor, nombre AS texto FROM torneo ORDER BY anio DESC, semestre DESC")),
             campo("numero_fecha_inicio", "Desde la fecha", "number", extra='required min="1"'),
             campo("cantidad_fechas", "Cantidad de fechas", "number", extra='required min="1" max="20"'),
