@@ -290,11 +290,62 @@ BEFORE UPDATE ON partido
 FOR EACH ROW
 BEGIN
     DECLARE v_fin TIME;
+    DECLARE v_cant INT;
+    DECLARE v_cant_visit INT;
+
+    IF NEW.id_torneo <> OLD.id_torneo
+       OR NEW.id_equipo_local <> OLD.id_equipo_local
+       OR NEW.id_equipo_visitante <> OLD.id_equipo_visitante THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'No se pueden cambiar los equipos ni el torneo de un partido';
+    END IF;
+
+    IF OLD.estado IN ('jugado','cancelado') AND NEW.estado <> OLD.estado THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Un partido jugado o cancelado no puede cambiar de estado';
+    END IF;
+
+    IF NEW.numero_fecha <> OLD.numero_fecha OR NEW.dia <> OLD.dia OR NEW.id_turno <> OLD.id_turno
+       OR NEW.nombre_cancha <> OLD.nombre_cancha OR NEW.id_complejo <> OLD.id_complejo THEN
+
+        IF OLD.estado IN ('jugado','cancelado') THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Un partido jugado o cancelado no puede reprogramarse';
+        END IF;
+
+        SELECT COUNT(*) INTO v_cant FROM partido
+         WHERE id_torneo = NEW.id_torneo AND numero_fecha = NEW.numero_fecha
+           AND estado <> 'cancelado' AND id_partido <> NEW.id_partido
+           AND (id_equipo_local IN (NEW.id_equipo_local, NEW.id_equipo_visitante)
+             OR id_equipo_visitante IN (NEW.id_equipo_local, NEW.id_equipo_visitante));
+        IF v_cant > 0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Un equipo ya tiene partido en esa fecha del torneo';
+        END IF;
+
+        SELECT COUNT(*) INTO v_cant FROM partido
+         WHERE dia = NEW.dia AND id_turno = NEW.id_turno
+           AND nombre_cancha = NEW.nombre_cancha AND id_complejo = NEW.id_complejo
+           AND estado <> 'cancelado' AND id_partido <> NEW.id_partido;
+        IF v_cant > 0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La cancha ya tiene un partido en ese dia y turno';
+        END IF;
+    END IF;
+
     IF NEW.estado = 'jugado' AND OLD.estado <> 'jugado' THEN
+        IF OLD.estado = 'postergado' THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Un partido postergado debe reprogramarse antes de marcarse jugado';
+        END IF;
+
         SELECT hora_fin INTO v_fin FROM turno WHERE id_turno = NEW.id_turno;
         IF TIMESTAMP(NEW.dia, v_fin) > NOW() THEN
             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El dia y turno del partido todavia no pasaron';
         END IF;
+
+        SELECT COUNT(*) INTO v_cant FROM planilla_partido
+         WHERE id_partido = NEW.id_partido AND id_equipo = NEW.id_equipo_local;
+        SELECT COUNT(*) INTO v_cant_visit FROM planilla_partido
+         WHERE id_partido = NEW.id_partido AND id_equipo = NEW.id_equipo_visitante;
+        IF v_cant = 0 OR v_cant_visit = 0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Carga la planilla de ambos equipos antes de marcar jugado';
+        END IF;
+
         SET NEW.fecha_jugado = NOW();
     END IF;
 END$$
