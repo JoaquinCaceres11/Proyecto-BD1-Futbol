@@ -410,6 +410,34 @@ BEGIN
     END IF;
 END$$
 
+CREATE TRIGGER trg_tarjeta_borrar_sancion
+AFTER DELETE ON tarjeta
+FOR EACH ROW
+BEGIN
+    DECLARE v_torneo INT;
+    DECLARE v_fecha INT;
+    DECLARE v_amarillas INT;
+
+    SELECT id_torneo, numero_fecha INTO v_torneo, v_fecha
+      FROM partido WHERE id_partido = OLD.id_partido;
+
+    IF OLD.color = 'roja' THEN
+        DELETE FROM sancion_jugador
+         WHERE ci_jugador = OLD.ci_jugador AND id_torneo = v_torneo
+           AND motivo = 'roja' AND numero_fecha_inicio = v_fecha + 1
+         LIMIT 1;
+    ELSE
+        SELECT COUNT(*) INTO v_amarillas
+          FROM tarjeta t JOIN partido p ON p.id_partido = t.id_partido
+         WHERE t.ci_jugador = OLD.ci_jugador AND p.id_torneo = v_torneo AND t.color = 'amarilla';
+        IF v_amarillas < 3 THEN
+            DELETE FROM sancion_jugador
+             WHERE ci_jugador = OLD.ci_jugador AND id_torneo = v_torneo
+               AND motivo = 'acumulacion de amarillas';
+        END IF;
+    END IF;
+END$$
+
 DELIMITER ;
 
 
