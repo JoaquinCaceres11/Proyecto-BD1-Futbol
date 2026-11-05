@@ -125,12 +125,17 @@ SELECT j.ci, j.nombre, j.apellido, e.nombre AS equipo, s.motivo,
    AND 4 <  s.numero_fecha_inicio + s.cantidad_fechas
  ORDER BY e.nombre;
 
--- R12. Partidos con mas goles
-SELECT r.numero_fecha, el.nombre AS local, r.goles_local, r.goles_visitante, ev.nombre AS visitante,
-       r.goles_local + r.goles_visitante AS total_goles
-  FROM v_resultado_partido r
-  JOIN equipo el ON el.id_equipo = r.id_equipo_local
-  JOIN equipo ev ON ev.id_equipo = r.id_equipo_visitante
- WHERE r.id_torneo = 1
- ORDER BY total_goles DESC, r.numero_fecha
+-- R12. Partidos con mas goles (Ranking con Window Function DENSE_RANK)
+WITH partidos_goles AS (
+    SELECT r.numero_fecha, el.nombre AS local, r.goles_local, r.goles_visitante, ev.nombre AS visitante,
+           (r.goles_local + r.goles_visitante) AS total_goles
+      FROM v_resultado_partido r
+      JOIN equipo el ON el.id_equipo = r.id_equipo_local
+      JOIN equipo ev ON ev.id_equipo = r.id_equipo_visitante
+     WHERE r.id_torneo = 1
+)
+SELECT DENSE_RANK() OVER (ORDER BY total_goles DESC) AS puesto,
+       numero_fecha, local, goles_local, goles_visitante, visitante, total_goles
+  FROM partidos_goles
+ ORDER BY puesto, numero_fecha
  LIMIT 5;

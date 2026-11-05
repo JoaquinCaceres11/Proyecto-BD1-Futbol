@@ -92,13 +92,15 @@ def register_partidos_routes(app):
         es_admin = session["rol"] == "administrador"
         for r in filas:
             a = [accion("Planilla", url_for("planilla", id_partido=r["id"]), "get")]
-            if r["estado"] in ("programado", "postergado"):
+            if r["estado"] == "programado":
                 a.append(accion("Marcar jugado", url_for("partido_estado", id_partido=r["id"]), datos={"estado": "jugado"}, confirmar=True))
             if es_admin:
                 if r["estado"] == "programado":
                     a.append(accion("Postergar", url_for("partido_estado", id_partido=r["id"]), datos={"estado": "postergado"}, confirmar=True))
                 if r["estado"] in ("programado", "postergado"):
                     a.append(accion("Cancelar", url_for("partido_estado", id_partido=r["id"]), datos={"estado": "cancelado"}, confirmar=True))
+                if r["estado"] == "postergado":
+                    a.append(accion("Reprogramar", url_for("partido_reprogramar", id_partido=r["id"]), "get"))
                 a.append(accion("Eliminar", url_for("partido_eliminar", id_partido=r["id"]), confirmar=True))
             r["_acciones"] = a
 
@@ -231,9 +233,18 @@ def register_partidos_routes(app):
     @app.route("/partidos/<int:id_partido>/planilla/quitar", methods=["POST"])
     @ambos
     def planilla_quitar(id_partido):
-        return _planilla_accion(id_partido, lambda p: ejecutar(
-            "DELETE FROM planilla_partido WHERE id_partido = %s AND ci_jugador = %s",
-            (id_partido, request.form.get("ci_jugador", "")), "Jugador quitado de la planilla."))
+        ci = request.form.get("ci_jugador", "")
+        def hacer(p):
+            tiene = consulta(
+                "SELECT (SELECT COUNT(*) FROM gol WHERE id_partido = %s AND ci_jugador = %s) + "
+                "(SELECT COUNT(*) FROM tarjeta WHERE id_partido = %s AND ci_jugador = %s) AS n",
+                (id_partido, ci, id_partido, ci))
+            if tiene and tiene[0]["n"] > 0:
+                flash("Elimina primero los goles y tarjetas de este jugador antes de quitarlo de la planilla.", "error")
+            else:
+                ejecutar("DELETE FROM planilla_partido WHERE id_partido = %s AND ci_jugador = %s",
+                         (id_partido, ci), "Jugador quitado de la planilla.")
+        return _planilla_accion(id_partido, hacer)
 
     @app.route("/partidos/<int:id_partido>/gol", methods=["POST"])
     @ambos
@@ -260,6 +271,22 @@ def register_partidos_routes(app):
             return redirect(url_for("planilla", id_partido=id_partido))
         if not _minuto_valido(min_):
             return redirect(url_for("planilla", id_partido=id_partido))
+
+        # Validar maximo de tarjetas por jugador en el mismo partido
+        ya = consulta(
+            "SELECT COALESCE(SUM(color='amarilla'), 0) AS am, COALESCE(SUM(color='roja'), 0) AS rj "
+            "FROM tarjeta WHERE id_partido = %s AND ci_jugador = %s",
+            (id_partido, ci))
+        if ya:
+            am = int(ya[0]["am"])
+            rj = int(ya[0]["rj"])
+            if col == "roja" and rj >= 1:
+                flash("El jugador ya tiene una tarjeta roja en este partido.", "error")
+                return redirect(url_for("planilla", id_partido=id_partido))
+            if col == "amarilla" and am >= 2:
+                flash("El jugador ya tiene 2 amarillas en este partido (la segunda equivale a roja).", "error")
+                return redirect(url_for("planilla", id_partido=id_partido))
+
         return _planilla_accion(id_partido, lambda p: ejecutar(
             "INSERT INTO tarjeta (id_partido, ci_jugador, minuto, color) VALUES (%s,%s,%s,%s)",
             (id_partido, ci, int(min_), col), "Tarjeta registrada (la sancion automatica, si corresponde, se genera sola)."))
@@ -269,4 +296,52 @@ def register_partidos_routes(app):
     def tarjeta_eliminar(id_partido):
         return _planilla_accion(id_partido, lambda p: ejecutar(
             "DELETE FROM tarjeta WHERE id_tarjeta = %s AND id_partido = %s", (request.form.get("id"), id_partido), "Tarjeta eliminada."))
+
+    @app.route("/partidos/<int:id_partido>/reprogramar", methods=["GET", "POST"])
+    @admin
+    def partido_reprogramar(id_partido):
+        p = datos_partido(id_partido)
+        if not p or p["estado"] != "postergado":
+            flash("Solo se pueden reprogramar partidos postergados.", "error")
+            return redirect(url_for("partidos"))
+
+        if request.method == "POST":
+            numero_fecha_str, dia_str, id_turno, cancha_str = form_get("numero_fecha", "dia", "id_turno", "cancha")
+
+            dia_dt = None
+            try:
+                dia_dt = datetime.strptime(dia_str, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+
+            if validar([
+                (dia_dt is not None, "La fecha no es valida."),
+                (id_turno.isdigit(), "Selecciona un turno."),
+                (cancha_str and "|" in cancha_str, "Selecciona una cancha."),
+                (numero_fecha_str.isdigit() and int(numero_fecha_str) >= 1, "El numero de fecha debe ser mayor o igual a 1."),
+            ]):
+                nombre_cancha, comp_id = cancha_str.split("|")
+                ejecutar(
+                    "UPDATE partido SET numero_fecha = %s, dia = %s, id_turno = %s, nombre_cancha = %s, "
+                    "id_complejo = %s, estado = 'programado' WHERE id_partido = %s",
+                    (int(numero_fecha_str), dia_str, int(id_turno), nombre_cancha, int(comp_id), id_partido),
+                    "Partido reprogramado y vuelto a estado programado.",
+                )
+                return redirect(url_for("partidos"))
+            return redirect(url_for("partido_reprogramar", id_partido=id_partido))
+
+        canchas_op = opciones(
+            "SELECT CONCAT(c.nombre_cancha, '|', c.id_complejo) AS valor, "
+            "CONCAT(c.nombre_cancha, ' - ', x.nombre) AS texto "
+            "FROM cancha c JOIN complejo x ON x.id_complejo = c.id_complejo ORDER BY x.nombre, c.nombre_cancha"
+        )
+        form = formulario("Reprogramar partido postergado", url_for("partido_reprogramar", id_partido=id_partido), [
+            campo("numero_fecha", "Numero de fecha", "number", extra='required min="1"', valor=str(p["numero_fecha"])),
+            campo("dia", "Nuevo dia", "date", extra="required"),
+            campo("id_turno", "Turno", "select", opciones("SELECT id_turno AS valor, CONCAT(hora_inicio, ' a ', hora_fin) AS texto FROM turno")),
+            campo("cancha", "Cancha", "select", canchas_op),
+        ], "Reprogramar")
+
+        sub = f"{p['local']} vs {p['visitante']} (Fecha {p['numero_fecha']} - Postergado)"
+        return pagina("Reprogramar partido", [form], subtitulo=sub)
 

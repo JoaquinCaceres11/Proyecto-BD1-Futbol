@@ -30,7 +30,7 @@ services:
       DB_ADMIN_PASS: admin_pass_2026
       DB_PLANILLERO_USER: app_planillero
       DB_PLANILLERO_PASS: planillero_pass_2026
-      SECRET_KEY: cambiar-en-produccion
+      SECRET_KEY: f7a3e2c9d1b04856a29e38f5c6d7e8f9a0b1c2d3e4f56789abcdef0123456789
     ports:
       - "5000:5000"
 

@@ -5,6 +5,7 @@
 
 {% for f in formularios %}
 <form method="post" action="{{ f.action }}" class="card">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
   <h3>{{ f.titulo }}</h3>
   {% for c in f.campos %}
     {% if c.tipo == 'select' %}
@@ -41,6 +42,7 @@
           {% else %}
             <form method="post" action="{{ a.url }}" class="inline"
                   {% if a.confirmar %}onsubmit="return confirm('Confirmar la accion?')"{% endif %}>
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               {% for k, v in a.datos.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
               <button>{{ a.label }}</button>
             </form>

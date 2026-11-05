@@ -72,6 +72,10 @@ def register_jugadores_routes(app):
     @app.route("/jugadores/<ci>/editar", methods=["GET", "POST"])
     @admin
     def jugador_editar(ci):
+        if not CI_RE.match(ci):
+            flash("CI invalida.", "error")
+            return redirect(url_for("jugadores"))
+
         if request.method == "POST":
             f = dict(zip(CAMPOS_JUGADOR, form_get(*CAMPOS_JUGADOR)))
             f["ci"] = ci
@@ -96,6 +100,14 @@ def register_jugadores_routes(app):
     @app.route("/jugadores/<ci>/eliminar", methods=["POST"])
     @admin
     def jugador_eliminar(ci):
+        if not CI_RE.match(ci):
+            flash("CI invalida.", "error")
+            return redirect(url_for("jugadores"))
+        en_plantel = consulta(
+            "SELECT COUNT(*) AS n FROM equipo_jugador_torneo WHERE ci_jugador = %s", (ci,))
+        if en_plantel and en_plantel[0]["n"] > 0:
+            flash("No se puede eliminar: el jugador integra un plantel. Quitalo del plantel primero.", "error")
+            return redirect(url_for("jugadores"))
         ejecutar("DELETE FROM jugador WHERE ci = %s", (ci,), "Jugador eliminado.")
         return redirect(url_for("jugadores"))
 

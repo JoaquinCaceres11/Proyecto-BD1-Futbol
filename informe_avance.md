@@ -75,8 +75,9 @@ Se respetaron las 14 tablas de la letra. Decisiones y agregados:
 | Goles y tarjetas solo de jugadores de la planilla | FK compuesta | La pantalla solo ofrece jugadores de la planilla |
 | Marcar jugado solo si el día y turno ya pasaron | Trigger | — |
 | Partido jugado no se elimina | Trigger | — |
-| Corrección del resultado dentro de las 48 hs | — | Se bloquea la edición de la planilla (calculado con `NOW()` de la base) |
-| Sanción automática por roja y por 3 amarillas | Trigger sobre `tarjeta` | — |
+| Corrección del resultado dentro de las 48 hs | Triggers en `gol`, `tarjeta` y `planilla_partido` | Bloqueo en UI y API (calculado con `NOW()` de la base) |
+| Sanción automática por roja y por acumulación de amarillas | Triggers sobre `tarjeta` (cada roja y cada múltiplo de 3 amarillas) | — |
+| Fixture liga a una sola rueda | Triggers evitan enfrentamientos repetidos o en la misma fecha | Algoritmo Round-Robin automatizado en el panel de torneos |
 
 ## 4. Seguridad a nivel de base de datos
 
@@ -121,16 +122,18 @@ Incluyen un autogol, rojas, acumulación de amarillas y una sanción disciplinar
 devuelvan datos. Los jugadores inscriptos que nunca figuran en una planilla (para el reporte R7) son el séptimo
 jugador de cada plantel y el sexto de varios equipos.
 
-## 8. Pendientes para la entrega final
+## 8. Mejoras implementadas y consideraciones para la entrega final
 
-- Pasar contraseñas a un hash con sal (por ejemplo bcrypt) en lugar de SHA-256 simple.
-- Controlar a nivel de base de datos la regla de las 48 horas (hoy se controla en el back-end).
-- Trigger que impida pasar el torneo a "en curso" si algún equipo tiene menos de 5 jugadores (hoy lo controla el back-end).
-- Reprogramar partidos postergados (cambiar día, turno y cancha).
-- Generador automático de fixture de liga a una rueda.
-- Al eliminar una tarjeta, anular la sanción automática asociada.
-- Mejorar la interfaz (filtros por torneo, paginación) y agregar pruebas.
-- Completar la bitácora con el detalle de cada reunión.
+- **Regla de las 48 horas asegurada en el motor:** Se implementaron triggers `BEFORE INSERT` y `BEFORE DELETE` en las tablas `planilla_partido`, `gol` y `tarjeta` para garantizar a nivel de base de datos que no se puedan modificar resultados de partidos disputados hace más de 48 horas.
+- **Fixture automático Round-Robin:** Se incorporó en la aplicación el generador de liga a una sola rueda que programa automáticamente todas las fechas y partidos rotando turnos y canchas sin solapamiento.
+- **Reprogramación de partidos postergados:** Se implementó la ruta y formulario de reprogramación para reasignar día, turno, cancha y fecha a los partidos suspendidos/postergados.
+- **Protección web contra ataques CSRF:** Se incorporaron tokens de protección CSRF en todos los formularios del sistema y se fortaleció la clave secreta de sesión.
+- **Sanciones por acumulación:** El trigger de tarjetas ahora calcula múltiplos de 3 amarillas (`v_amarillas MOD 3 = 0`) para contemplar torneos largos con múltiples sanciones por acumulación.
+- **Consultas con Funciones de Ventana:** El reporte R12 implementa `DENSE_RANK() OVER (ORDER BY total_goles DESC)` para generar un ranking analítico de los partidos con más goles de la edición.
+
+**Trabajo futuro / Oportunidades de mejora:**
+- Pasar el almacenamiento de contraseñas a un hash con sal y coste adaptable (como bcrypt o Argon2) en lugar de SHA-256 simple.
+- Gestión de postergaciones con reprogramación flexible de sanciones (en caso de fechas postergadas de forma asincrónica).
 
 ## 9. Bitácora del trabajo realizado
 

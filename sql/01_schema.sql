@@ -235,6 +235,19 @@ BEGIN
     DECLARE v_cant INT;
     DECLARE v_t1 INT;
     DECLARE v_t2 INT;
+    DECLARE v_inicio DATE;
+    DECLARE v_fin_torneo DATE;
+    DECLARE v_est_torneo VARCHAR(20);
+
+    SELECT estado, fecha_inicio, fecha_fin INTO v_est_torneo, v_inicio, v_fin_torneo 
+      FROM torneo WHERE id_torneo = NEW.id_torneo;
+    IF v_est_torneo <> 'en curso' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Solo se pueden programar partidos cuando el torneo esta en curso';
+    END IF;
+
+    IF NEW.dia < v_inicio OR NEW.dia > v_fin_torneo THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El dia del partido esta fuera del rango del torneo';
+    END IF;
 
     SELECT id_torneo INTO v_t1 FROM equipo WHERE id_equipo = NEW.id_equipo_local;
     SELECT id_torneo INTO v_t2 FROM equipo WHERE id_equipo = NEW.id_equipo_visitante;
@@ -360,10 +373,16 @@ BEGIN
     DECLARE v_torneo INT;
     DECLARE v_local INT;
     DECLARE v_visit INT;
+    DECLARE v_est VARCHAR(20);
+    DECLARE v_fjug DATETIME;
 
-    SELECT id_torneo, numero_fecha, id_equipo_local, id_equipo_visitante
-      INTO v_torneo, v_fecha, v_local, v_visit
+    SELECT id_torneo, numero_fecha, id_equipo_local, id_equipo_visitante, estado, fecha_jugado
+      INTO v_torneo, v_fecha, v_local, v_visit, v_est, v_fjug
       FROM partido WHERE id_partido = NEW.id_partido;
+
+    IF v_est = 'jugado' AND TIMESTAMPDIFF(HOUR, v_fjug, NOW()) >= 48 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Pasaron mas de 48 horas desde la disputa: no se puede modificar la planilla';
+    END IF;
 
     IF NEW.id_equipo NOT IN (v_local, v_visit) THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El equipo no participa en el partido';
@@ -381,6 +400,66 @@ BEGIN
        AND v_fecha <  numero_fecha_inicio + cantidad_fechas;
     IF v_cant > 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El jugador esta suspendido para esta fecha';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_planilla_delete
+BEFORE DELETE ON planilla_partido
+FOR EACH ROW
+BEGIN
+    DECLARE v_est VARCHAR(20);
+    DECLARE v_fjug DATETIME;
+    SELECT estado, fecha_jugado INTO v_est, v_fjug FROM partido WHERE id_partido = OLD.id_partido;
+    IF v_est = 'jugado' AND TIMESTAMPDIFF(HOUR, v_fjug, NOW()) >= 48 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Pasaron mas de 48 horas desde la disputa: no se puede modificar la planilla';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_gol_insert
+BEFORE INSERT ON gol
+FOR EACH ROW
+BEGIN
+    DECLARE v_est VARCHAR(20);
+    DECLARE v_fjug DATETIME;
+    SELECT estado, fecha_jugado INTO v_est, v_fjug FROM partido WHERE id_partido = NEW.id_partido;
+    IF v_est = 'jugado' AND TIMESTAMPDIFF(HOUR, v_fjug, NOW()) >= 48 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Pasaron mas de 48 horas desde la disputa: no se pueden cargar goles';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_gol_delete
+BEFORE DELETE ON gol
+FOR EACH ROW
+BEGIN
+    DECLARE v_est VARCHAR(20);
+    DECLARE v_fjug DATETIME;
+    SELECT estado, fecha_jugado INTO v_est, v_fjug FROM partido WHERE id_partido = OLD.id_partido;
+    IF v_est = 'jugado' AND TIMESTAMPDIFF(HOUR, v_fjug, NOW()) >= 48 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Pasaron mas de 48 horas desde la disputa: no se pueden eliminar goles';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_tarjeta_insert_48hs
+BEFORE INSERT ON tarjeta
+FOR EACH ROW
+BEGIN
+    DECLARE v_est VARCHAR(20);
+    DECLARE v_fjug DATETIME;
+    SELECT estado, fecha_jugado INTO v_est, v_fjug FROM partido WHERE id_partido = NEW.id_partido;
+    IF v_est = 'jugado' AND TIMESTAMPDIFF(HOUR, v_fjug, NOW()) >= 48 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Pasaron mas de 48 horas desde la disputa: no se pueden registrar tarjetas';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_tarjeta_delete_48hs
+BEFORE DELETE ON tarjeta
+FOR EACH ROW
+BEGIN
+    DECLARE v_est VARCHAR(20);
+    DECLARE v_fjug DATETIME;
+    SELECT estado, fecha_jugado INTO v_est, v_fjug FROM partido WHERE id_partido = OLD.id_partido;
+    IF v_est = 'jugado' AND TIMESTAMPDIFF(HOUR, v_fjug, NOW()) >= 48 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Pasaron mas de 48 horas desde la disputa: no se pueden eliminar tarjetas';
     END IF;
 END$$
 
@@ -403,7 +482,7 @@ BEGIN
         SELECT COUNT(*) INTO v_amarillas
           FROM tarjeta t JOIN partido p ON p.id_partido = t.id_partido
          WHERE t.ci_jugador = NEW.ci_jugador AND p.id_torneo = v_torneo AND t.color = 'amarilla';
-        IF v_amarillas = 3 THEN
+        IF v_amarillas > 0 AND (v_amarillas MOD 3) = 0 THEN
             INSERT INTO sancion_jugador (ci_jugador, id_torneo, motivo, numero_fecha_inicio, cantidad_fechas)
             VALUES (NEW.ci_jugador, v_torneo, 'acumulacion de amarillas', v_fecha + 1, 1);
         END IF;

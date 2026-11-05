@@ -47,6 +47,12 @@ def register_equipos_routes(app):
     @app.route("/equipos/<int:id_equipo>/eliminar", methods=["POST"])
     @admin
     def equipo_eliminar(id_equipo):
+        partidos = consulta(
+            "SELECT COUNT(*) AS n FROM partido WHERE id_equipo_local = %s OR id_equipo_visitante = %s",
+            (id_equipo, id_equipo))
+        if partidos and partidos[0]["n"] > 0:
+            flash("No se puede eliminar un equipo que tiene partidos programados o jugados.", "error")
+            return redirect(url_for("equipos"))
         ejecutar("DELETE FROM equipo WHERE id_equipo = %s", (id_equipo,), "Equipo eliminado.")
         return redirect(url_for("equipos"))
 
