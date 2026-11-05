@@ -438,6 +438,81 @@ BEGIN
     END IF;
 END$$
 
+CREATE TRIGGER trg_plantel_update
+BEFORE UPDATE ON equipo_jugador_torneo
+FOR EACH ROW
+BEGIN
+    DECLARE v_estado VARCHAR(20);
+
+    SELECT estado INTO v_estado FROM torneo WHERE id_torneo = OLD.id_torneo;
+    IF v_estado <> 'inscripcion' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El plantel solo puede modificarse en etapa de inscripcion';
+    END IF;
+
+    IF NEW.id_equipo <> OLD.id_equipo OR NEW.ci_jugador <> OLD.ci_jugador OR NEW.id_torneo <> OLD.id_torneo THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Para cambiar de equipo, quita al jugador y agregalo de nuevo';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_jugador_update
+BEFORE UPDATE ON jugador
+FOR EACH ROW
+BEGIN
+    DECLARE v_cant INT;
+
+    IF NEW.id_facultad <> OLD.id_facultad THEN
+        SELECT COUNT(*) INTO v_cant
+          FROM equipo_jugador_torneo ejt JOIN torneo t ON t.id_torneo = ejt.id_torneo
+         WHERE ejt.ci_jugador = OLD.ci AND t.estado <> 'finalizado';
+        IF v_cant > 0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El jugador integra un plantel activo: no puede cambiar de facultad';
+        END IF;
+    END IF;
+
+    IF NEW.tipo IN ('docente','funcionario') AND OLD.tipo NOT IN ('docente','funcionario') THEN
+        SELECT COUNT(*) INTO v_cant
+          FROM equipo_jugador_torneo propio
+          JOIN torneo t ON t.id_torneo = propio.id_torneo
+          JOIN equipo_jugador_torneo otro ON otro.id_equipo = propio.id_equipo AND otro.ci_jugador <> propio.ci_jugador
+          JOIN jugador j ON j.ci = otro.ci_jugador
+         WHERE propio.ci_jugador = OLD.ci AND t.estado <> 'finalizado'
+           AND j.tipo IN ('docente','funcionario');
+        IF v_cant >= 2 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El plantel del jugador ya tiene 2 docentes/funcionarios';
+        END IF;
+    END IF;
+END$$
+
+CREATE TRIGGER trg_torneo_update
+BEFORE UPDATE ON torneo
+FOR EACH ROW
+BEGIN
+    DECLARE v_cant INT;
+
+    IF NEW.estado <> OLD.estado THEN
+        IF NOT ((OLD.estado = 'inscripcion' AND NEW.estado = 'en curso')
+             OR (OLD.estado = 'en curso' AND NEW.estado = 'finalizado')) THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Transicion de estado no permitida';
+        END IF;
+    END IF;
+
+    IF OLD.estado = 'inscripcion' AND NEW.estado = 'en curso' THEN
+        SELECT COUNT(*) INTO v_cant
+          FROM equipo e
+         WHERE e.id_torneo = NEW.id_torneo
+           AND (SELECT COUNT(*) FROM equipo_jugador_torneo x WHERE x.id_equipo = e.id_equipo) < 5;
+        IF v_cant > 0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Hay equipos con menos de 5 jugadores';
+        END IF;
+
+        SELECT COUNT(*) INTO v_cant
+          FROM equipo WHERE id_torneo = NEW.id_torneo AND ci_capitan IS NULL;
+        IF v_cant > 0 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Hay equipos sin capitan';
+        END IF;
+    END IF;
+END$$
+
 DELIMITER ;
 
 
