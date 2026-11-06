@@ -180,7 +180,7 @@ INSERT INTO planilla_partido (id_partido, ci_jugador, id_equipo) VALUES (9,'4000
 INSERT INTO gol (id_partido, ci_jugador, minuto, autogol) VALUES (9,'4000202',21,0),(9,'4000201',36,0);
 INSERT INTO tarjeta (id_partido, ci_jugador, minuto, color) VALUES (9,'4000604',48,'roja');
 
-INSERT INTO partido (id_partido,id_torneo,numero_fecha,id_equipo_local,id_equipo_visitante,dia,id_turno,nombre_cancha,id_complejo,estado,fecha_jugado) VALUES (10,1,4,1,3,'2026-11-02',1,'Cancha 1',1,'programado',NULL);
+INSERT INTO partido (id_partido,id_torneo,numero_fecha,id_equipo_local,id_equipo_visitante,dia,id_turno,nombre_cancha,id_complejo,estado,fecha_jugado) VALUES (10,1,4,1,3,DATE_SUB(CURDATE(), INTERVAL 1 DAY),1,'Cancha 1',1,'programado',NULL);
 
 INSERT INTO partido (id_partido,id_torneo,numero_fecha,id_equipo_local,id_equipo_visitante,dia,id_turno,nombre_cancha,id_complejo,estado,fecha_jugado) VALUES (11,1,4,4,2,'2026-11-02',2,'Cancha A',2,'postergado',NULL);
 

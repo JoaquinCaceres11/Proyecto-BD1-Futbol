@@ -6,8 +6,9 @@ from helpers import accion, admin, ambos, campo, cuenta, fila, formulario, form_
 
 def datos_partido(id_partido):
     return fila(
-        "SELECT p.*, el.nombre AS local, ev.nombre AS visitante, t.hora_fin, "
-        "(p.estado = 'jugado' AND TIMESTAMPDIFF(HOUR, p.fecha_jugado, NOW()) >= 48) AS vencido "
+        "SELECT p.*, el.nombre AS local, ev.nombre AS visitante, "
+        "(TIMESTAMP(p.dia, t.hora_fin) > NOW()) AS no_disputado, "
+        "(p.estado = 'jugado' AND NOW() > TIMESTAMP(p.dia, t.hora_fin) + INTERVAL 48 HOUR) AS vencido "
         "FROM partido p JOIN equipo el ON el.id_equipo = p.id_equipo_local "
         "JOIN equipo ev ON ev.id_equipo = p.id_equipo_visitante JOIN turno t ON t.id_turno = p.id_turno "
         "WHERE p.id_partido = %s", (id_partido,))
@@ -16,6 +17,8 @@ def datos_partido(id_partido):
 def planilla_editable(p):
     if p["estado"] not in ("programado", "jugado"):
         return False, "Solo se puede cargar planilla en partidos programados o jugados."
+    if p["no_disputado"]:
+        return False, "El partido todavia no se disputo."
     if p["vencido"]:
         return False, "Pasaron mas de 48 horas desde la disputa: el resultado ya no puede modificarse."
     return True, ""
@@ -128,8 +131,9 @@ def register_partidos_routes(app):
         elif nuevo != "jugado" and session["rol"] != "administrador":
             flash("Solo el administrador puede postergar o cancelar partidos.", "error")
         elif nuevo == "jugado":
-            dia_fin = datetime.combine(p["dia"], (datetime.min + p["hora_fin"]).time())
-            if dia_fin > datetime.now():
+            if p["estado"] == "postergado":
+                flash("Un partido postergado debe reprogramarse antes de marcarse jugado.", "error")
+            elif p["no_disputado"]:
                 flash("El dia y turno del partido todavia no pasaron.", "error")
             elif cuenta("SELECT COUNT(*) FROM planilla_partido WHERE id_partido = %s AND id_equipo = %s", (id_partido, p["id_equipo_local"])) == 0 or \
                  cuenta("SELECT COUNT(*) FROM planilla_partido WHERE id_partido = %s AND id_equipo = %s", (id_partido, p["id_equipo_visitante"])) == 0:
