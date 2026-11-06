@@ -59,49 +59,47 @@ Se respetaron las 14 tablas de la letra. Decisiones y agregados:
 
 ## 3. Reglas de negocio y en qué capa se controlan
 
-| Regla | Base de datos | Back-end |
+Siguiendo las pautas de diseño y evitando el uso de triggers en el motor relacional, las reglas de negocio se dividen de forma limpia entre **restricciones declarativas de base de datos** (`CHECK`, `UNIQUE`, `FOREIGN KEY`, `NOT NULL`) y la **capa de backend (Python / Flask)**:
+
+| Regla | Base de datos (Declarativa) | Back-end (Lógica de negocio) |
 |---|---|---|
-| Plantel de 5 a 10 jugadores | Máximo 10 (trigger) | Mínimo 5 al pasar el torneo a "en curso" y en el trigger de partido |
-| Máx. 2 docentes/funcionarios por plantel | Trigger | — |
-| Jugador de la misma facultad que el equipo | Trigger | La pantalla solo ofrece jugadores de esa facultad |
-| Un jugador, un equipo por edición | UNIQUE | Solo se ofrecen jugadores libres |
-| Plantel modificable solo en inscripción | Trigger | Se oculta el formulario |
-| Capitán es jugador del plantel | Trigger | No se puede quitar al capitán |
-| Equipos de la misma edición con al menos 5 jugadores | Trigger | — |
-| No jugar contra sí mismo ni repetir rival (salvo cancelado) | CHECK + trigger | Validación previa |
-| Un partido por equipo por fecha | Trigger | — |
-| Una cancha por día y turno | Trigger | — |
-| Solo jugadores del plantel y no suspendidos en la planilla | Trigger | — |
-| Goles y tarjetas solo de jugadores de la planilla | FK compuesta | La pantalla solo ofrece jugadores de la planilla |
-| Marcar jugado solo si el día y turno ya pasaron | Trigger | — |
-| Partido jugado no se elimina | Trigger | — |
-| Corrección del resultado dentro de las 48 hs | Triggers en `gol`, `tarjeta` y `planilla_partido` | Bloqueo en UI y API (calculado con `NOW()` de la base) |
-| Sanción automática por roja y por acumulación de amarillas | Triggers sobre `tarjeta` (cada roja y cada múltiplo de 3 amarillas) | — |
-| Fixture liga a una sola rueda | Triggers evitan enfrentamientos repetidos o en la misma fecha | Algoritmo Round-Robin automatizado en el panel de torneos |
+| Plantel de 5 a 10 jugadores | — | Chequeo de cupo (máximo 10) al agregar; mínimo 5 al pasar a "en curso" y al programar partidos |
+| Máx. 2 docentes/funcionarios por plantel | — | Validación en backend al agregar al plantel o editar jugador |
+| Jugador de la misma facultad que el equipo | — | Filtro en interfaz y validación estricta de pertenencia en backend |
+| Un jugador, un equipo por edición | `UNIQUE (ci_jugador, id_torneo)` | Validación previa y listado exclusivo de jugadores disponibles |
+| Plantel modificable solo en inscripción | — | Validación de estado del torneo en rutas de agregar/quitar jugador |
+| Capitán es jugador del plantel | — | Validación de pertenencia al plantel antes de actualizar capitán; impedimento de quitarlo del plantel |
+| Equipos de la misma edición con al menos 5 jugadores | `CHECK` / FKs | Verificación de pertenencia y cantidad mínima de jugadores antes de programar |
+| No jugar contra sí mismo ni repetir rival (salvo cancelado) | `CHECK (id_equipo_local <> id_equipo_visitante)` | Validación previa en creación de partido y algoritmo de fixture |
+| Un partido por equipo por fecha | — | Consulta de verificación antes de insertar o reprogramar partidos |
+| Una cancha por día y turno | — | Consulta de disponibilidad de cancha/turno antes de programar o reprogramar |
+| Solo jugadores del plantel y no suspendidos en la planilla | FK compuesta en tablas relacionadas | Validación de pertenencia al plantel y consulta de suspensiones activas para la fecha |
+| Goles y tarjetas solo de jugadores de la planilla | FK compuesta hacia `planilla_partido(id_partido, ci_jugador)` | Validación y opciones restringidas a jugadores en planilla |
+| Marcar jugado solo si el día y turno ya pasaron | — | Validación contra `NOW()` y existencia de planilla de ambos equipos |
+| Partido jugado no se elimina | — | Validación en ruta de eliminación de partido |
+| Corrección del resultado dentro de las 48 hs | — | Control en backend (`TIMESTAMPDIFF(HOUR, fecha_jugado, NOW()) < 48`) en edición de planillas, goles y tarjetas |
+| Sanción automática por roja y por acumulación de amarillas | — | Lógica automática en backend tras registrar tarjeta: genera sanción para la fecha siguiente y revierte si se borra |
+| Fixture liga a una sola rueda | — | Algoritmo Round-Robin automatizado en el panel de torneos |
 
 ## 4. Seguridad a nivel de base de datos
 
-Se crean dos usuarios de MySQL:
+Se crean dos usuarios de MySQL con privilegios diferenciados:
 
 - `app_admin`: `SELECT, INSERT, UPDATE, DELETE` sobre toda la base.
-- `app_planillero`: `SELECT` solo sobre las tablas del torneo (**no** sobre `login`), escritura únicamente sobre
-  `planilla_partido`, `gol` y `tarjeta`, y `UPDATE` limitado a las columnas `estado` y `fecha_jugado` de `partido`.
+- `app_planillero`: `SELECT` solo sobre las tablas del torneo (**no** sobre `login`), escritura (`SELECT, INSERT, UPDATE, DELETE`) únicamente sobre `planilla_partido`, `gol`, `tarjeta` y `sancion_jugador` (para registro automático de sanciones derivadas del partido), y `UPDATE` limitado a las columnas `estado` y `fecha_jugado` de `partido`.
 
 La aplicación abre la conexión con el usuario que corresponde al rol del usuario logueado, de modo que aunque
 hubiera un error en la aplicación, la base impide que un planillero modifique datos que no le corresponden.
-La sanción automática la inserta un trigger, que corre con los privilegios de su creador, por eso el planillero
-no necesita permisos sobre `sancion_jugador`.
 
 Las contraseñas de la aplicación se guardan con hash SHA-256 (`SHA2()` de MySQL) y las consultas usan
-parámetros (`%s`) para evitar inyección SQL.
+parámetros (`%s`) para evitar inyección SQL. Además, todos los formularios cuentan con protección contra ataques CSRF.
 
 ## 5. Validación en tres capas
 
 1. **Front-end:** atributos HTML (`required`, `pattern`, `min`, `max`, `maxlength`, tipos `email`, `date`, `number`).
-2. **Back-end:** funciones de validación en `app.py` antes de ejecutar cada consulta (formato de CI y email,
-   edad mínima, rangos de minutos y fechas, estados válidos del torneo, etc.).
-3. **Base de datos:** `CHECK`, `UNIQUE`, claves foráneas, `ENUM`, `NOT NULL` y triggers. Los mensajes de error de los
-   triggers se muestran en pantalla.
+2. **Back-end:** funciones de validación en Python antes de ejecutar cada consulta (formato de CI y email,
+   edad mínima, rangos de minutos y fechas, estados válidos del torneo, disponibilidad de turnos/canchas, suspensiones vigentes, etc.).
+3. **Base de datos:** Restricciones declarativas: `CHECK`, `UNIQUE`, claves foráneas compuestas, `ENUM`, `NOT NULL`. Los errores de integridad son capturados amigablemente.
 
 ## 6. Reportes
 
@@ -124,11 +122,12 @@ jugador de cada plantel y el sexto de varios equipos.
 
 ## 8. Mejoras implementadas y consideraciones para la entrega final
 
-- **Regla de las 48 horas asegurada en el motor:** Se implementaron triggers `BEFORE INSERT` y `BEFORE DELETE` en las tablas `planilla_partido`, `gol` y `tarjeta` para garantizar a nivel de base de datos que no se puedan modificar resultados de partidos disputados hace más de 48 horas.
+- **Arquitectura en capas sin triggers:** Toda la lógica de negocio, validaciones complejas y automatizaciones se concentraron en la capa de backend en Python, manteniendo el esquema de base de datos puramente relacional y declarativo (`CHECK`, `UNIQUE`, `FOREIGN KEY`).
+- **Control de edición en 48 horas:** Se valida en backend que tras 48 horas de disputado un partido (`NOW() - fecha_jugado >= 48 hs`), las planillas, goles y tarjetas queden congeladas para edición.
 - **Fixture automático Round-Robin:** Se incorporó en la aplicación el generador de liga a una sola rueda que programa automáticamente todas las fechas y partidos rotando turnos y canchas sin solapamiento.
-- **Reprogramación de partidos postergados:** Se implementó la ruta y formulario de reprogramación para reasignar día, turno, cancha y fecha a los partidos suspendidos/postergados.
+- **Reprogramación de partidos postergados:** Se implementó la ruta y formulario de reprogramación para reasignar día, turno, cancha y fecha a los partidos suspendidos/postergados, verificando disponibilidad de cancha y fixture.
 - **Protección web contra ataques CSRF:** Se incorporaron tokens de protección CSRF en todos los formularios del sistema y se fortaleció la clave secreta de sesión.
-- **Sanciones por acumulación:** El trigger de tarjetas ahora calcula múltiplos de 3 amarillas (`v_amarillas MOD 3 = 0`) para contemplar torneos largos con múltiples sanciones por acumulación.
+- **Automatización de sanciones por tarjetas:** El backend aplica automáticamente la suspensión para la fecha siguiente ante tarjeta roja o acumulación de tarjetas amarillas (cada 3 amarillas: 3, 6, 9...), revirtiéndolas si se cancela o elimina la tarjeta.
 - **Consultas con Funciones de Ventana:** El reporte R12 implementa `DENSE_RANK() OVER (ORDER BY total_goles DESC)` para generar un ranking analítico de los partidos con más goles de la edición.
 
 **Trabajo futuro / Oportunidades de mejora:**

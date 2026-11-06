@@ -85,3 +85,15 @@ def opciones(sql, params=None):
     """Genera lista de tuplas (valor, texto) a partir de una consulta SQL."""
     return [(r["valor"], r["texto"]) for r in consulta(sql, params)]
 
+
+def fila(sql, params=None):
+    """Devuelve la primera fila de un SELECT o None si esta vacio."""
+    r = consulta(sql, params)
+    return r[0] if r else None
+
+
+def cuenta(sql, params=None):
+    """Devuelve el primer valor numerico de un SELECT COUNT(*)."""
+    f = fila(sql, params)
+    return list(f.values())[0] if f else 0
+

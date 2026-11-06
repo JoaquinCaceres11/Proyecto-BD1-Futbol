@@ -9,15 +9,11 @@ def register_sanciones_routes(app):
     def sanciones():
         if request.method == "POST":
             ci, id_t, ini, cant = form_get("ci_jugador", "id_torneo", "numero_fecha_inicio", "cantidad_fechas")
-            en_plantel = lambda: consulta(
-                "SELECT 1 FROM equipo_jugador_torneo WHERE ci_jugador = %s AND id_torneo = %s", (ci, id_t)
-            )
 
             if validar([
                 (CI_RE.match(ci) and id_t.isdigit(), "Selecciona jugador y torneo."),
                 (ini.isdigit() and int(ini) >= 1, "La fecha de inicio debe ser un numero mayor o igual a 1."),
                 (cant.isdigit() and 1 <= int(cant) <= 20, "La cantidad de fechas debe estar entre 1 y 20."),
-                (not (CI_RE.match(ci) and id_t.isdigit()) or en_plantel(), "El jugador no integra ningun plantel de ese torneo."),
             ]):
                 ejecutar(
                     "INSERT INTO sancion_jugador (ci_jugador, id_torneo, motivo, numero_fecha_inicio, cantidad_fechas) "
@@ -36,11 +32,15 @@ def register_sanciones_routes(app):
         for r in filas:
             r["_acciones"] = [accion("Eliminar", url_for("sancion_eliminar", id_sancion=r["id"]), confirmar=True)]
 
+        jugadores_op = opciones(
+            "SELECT j.ci AS valor, CONCAT(j.apellido, ', ', j.nombre, ' (CI: ', j.ci, ')') AS texto "
+            "FROM jugador j ORDER BY j.apellido, j.nombre"
+        )
+        torneos_op = opciones("SELECT id_torneo AS valor, CONCAT(nombre, ' (', estado, ')') AS texto FROM torneo ORDER BY anio DESC, semestre DESC")
+
         form = formulario("Nueva sancion disciplinaria", url_for("sanciones"), [
-            campo("ci_jugador", "Jugador", "select", opciones(
-                "SELECT DISTINCT j.ci AS valor, CONCAT(j.apellido, ', ', j.nombre) AS texto "
-                "FROM jugador j JOIN equipo_jugador_torneo ejt ON ejt.ci_jugador = j.ci ORDER BY texto")),
-            campo("id_torneo", "Torneo", "select", opciones("SELECT id_torneo AS valor, nombre AS texto FROM torneo ORDER BY anio DESC, semestre DESC")),
+            campo("ci_jugador", "Jugador", "select", jugadores_op),
+            campo("id_torneo", "Torneo", "select", torneos_op),
             campo("numero_fecha_inicio", "Desde la fecha", "number", extra='required min="1"'),
             campo("cantidad_fechas", "Cantidad de fechas", "number", extra='required min="1" max="20"'),
         ], "Aplicar sancion")
