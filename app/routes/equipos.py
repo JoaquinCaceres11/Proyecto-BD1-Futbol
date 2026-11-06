@@ -13,7 +13,7 @@ def register_equipos_routes(app):
             if validar([
                 (nom and len(nom) <= 100, "Nombre requerido (max 100)."),
                 (id_t.isdigit() and id_f.isdigit(), "Selecciona torneo y facultad."),
-                (t and t["estado"] in ("inscripcion", "en curso"), "No se pueden crear equipos en un torneo finalizado."),
+                (t and t["estado"] == "inscripcion", "Solo se pueden crear equipos en etapa de inscripcion."),
             ]):
                 ejecutar("INSERT INTO equipo (nombre, id_torneo, id_facultad) VALUES (%s,%s,%s)", (nom, int(id_t), int(id_f)), "Equipo creado.")
             return redirect(url_for("equipos"))
@@ -27,6 +27,7 @@ def register_equipos_routes(app):
         )
         for r in filas:
             r["_acciones"] = [accion("Plantel", url_for("equipo_plantel", id_equipo=r["id"]), "get"),
+                              accion("Modificar", url_for("equipo_editar", id_equipo=r["id"]), "get"),
                               accion("Eliminar", url_for("equipo_eliminar", id_equipo=r["id"]), confirmar=True)]
 
         torneos_op = opciones("SELECT id_torneo AS valor, CONCAT(nombre, ' (', estado, ')') AS texto FROM torneo ORDER BY anio DESC, semestre DESC")
@@ -40,6 +41,43 @@ def register_equipos_routes(app):
         ], "Crear equipo")
         return pagina("Equipos", [form], [tabla("Equipos inscriptos", ["id", "nombre", "torneo", "facultad", "capitan", "jugadores"], filas, True)])
 
+    
+    @app.route("/equipos/<int:id_equipo>/editar", methods=["GET", "POST"])
+    @admin
+    def equipo_editar(id_equipo):
+        eq = fila("SELECT * FROM equipo WHERE id_equipo = %s", (id_equipo,))
+        if not eq:
+            flash("El equipo no existe.", "error")
+            return redirect(url_for("equipos"))
+
+        if request.method == "POST":
+            nom = form_get("nombre")[0]
+            if validar([(nom and len(nom) <= 100, "Nombre requerido (max 100).")]):
+                ejecutar("UPDATE equipo SET nombre = %s WHERE id_equipo = %s", (nom, id_equipo), "Equipo modificado.")
+                return redirect(url_for("equipos"))
+            return redirect(url_for("equipo_editar", id_equipo=id_equipo))
+
+        form = formulario("Modificar equipo", url_for("equipo_editar", id_equipo=id_equipo), [
+            campo("nombre", "Nombre del equipo", extra='required maxlength="100"', valor=eq["nombre"]),
+        ], "Guardar cambios")
+        return pagina(f"Modificar equipo {eq['nombre']}", [form])
+
+    @app.route("/equipos/<int:id_equipo>/camiseta", methods=["POST"])
+    @admin
+    def plantel_camiseta(id_equipo):
+        eq = fila("SELECT t.estado FROM equipo e JOIN torneo t ON t.id_torneo = e.id_torneo WHERE e.id_equipo = %s", (id_equipo,))
+        ci, num = form_get("ci_jugador", "numero_camiseta")
+        if validar([
+            (eq and eq["estado"] == "inscripcion", "Solo se puede modificar el plantel en inscripcion."),
+            (num.isdigit() and 1 <= int(num) <= 99, "La camiseta debe estar entre 1 y 99."),
+            (cuenta("SELECT COUNT(*) FROM equipo_jugador_torneo WHERE id_equipo = %s AND numero_camiseta = %s AND ci_jugador <> %s",
+                    (id_equipo, num if num.isdigit() else 0, ci)) == 0, "Esa camiseta ya esta en uso en el equipo."),
+        ]):
+            ejecutar("UPDATE equipo_jugador_torneo SET numero_camiseta = %s WHERE id_equipo = %s AND ci_jugador = %s",
+                     (int(num), id_equipo, ci), "Camiseta modificada.")
+        return redirect(url_for("equipo_plantel", id_equipo=id_equipo))
+    
+    
     @app.route("/equipos/<int:id_equipo>/eliminar", methods=["POST"])
     @admin
     def equipo_eliminar(id_equipo):
@@ -94,7 +132,12 @@ def register_equipos_routes(app):
         ], "Agregar")
 
         es_insc = eq["estado_torneo"] == "inscripcion"
-        return pagina(f"Plantel de {eq['nombre']}", [form] if es_insc else [],
+        jugadores_op = [(r["ci"], f"{r['jugador']} (camiseta {r['camiseta']})") for r in filas]
+        form_cam = formulario("Cambiar camiseta", url_for("plantel_camiseta", id_equipo=id_equipo), [
+            campo("ci_jugador", "Jugador", "select", jugadores_op),
+            campo("numero_camiseta", "Nuevo numero", "number", extra='required min="1" max="99"'),
+        ], "Cambiar")
+        return pagina(f"Plantel de {eq['nombre']}", [form, form_cam] if es_insc else [],
                       [tabla(f"Plantel ({len(filas)} jugadores, 5 a 10, max. 2 staff)", ["ci", "jugador", "tipo", "camiseta", "capitan"], filas, es_insc)],
                       subtitulo=f"Facultad: {eq['facultad']} - Estado: {eq['estado_torneo']}")
 
