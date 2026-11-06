@@ -31,7 +31,7 @@ SELECT j.ci, j.nombre, j.apellido, e.nombre AS equipo, COUNT(*) AS goles
   JOIN jugador j ON j.ci = g.ci_jugador
   JOIN equipo_jugador_torneo ejt ON ejt.ci_jugador = j.ci AND ejt.id_torneo = p.id_torneo
   JOIN equipo e ON e.id_equipo = ejt.id_equipo
- WHERE p.id_torneo = 1 AND g.autogol = FALSE
+ WHERE p.id_torneo = 1 AND p.estado = 'jugado' AND g.autogol = FALSE
  GROUP BY j.ci, j.nombre, j.apellido, e.nombre
  ORDER BY goles DESC, j.apellido
  LIMIT 10;
@@ -43,6 +43,7 @@ SELECT e.nombre AS equipo,
        COALESCE(SUM(CASE t.color WHEN 'amarilla' THEN 1 WHEN 'roja' THEN 3 ELSE 0 END), 0) AS puntos_fair_play
   FROM equipo e
   LEFT JOIN planilla_partido pp ON pp.id_equipo = e.id_equipo
+    AND pp.id_partido IN (SELECT id_partido FROM partido WHERE estado = 'jugado')
   LEFT JOIN tarjeta t ON t.id_partido = pp.id_partido AND t.ci_jugador = pp.ci_jugador
  WHERE e.id_torneo = 1
  GROUP BY e.id_equipo, e.nombre
@@ -83,6 +84,7 @@ SELECT j.ci, j.nombre, j.apellido, e.nombre AS equipo
   JOIN jugador j ON j.ci = ejt.ci_jugador
   JOIN equipo e  ON e.id_equipo = ejt.id_equipo
   LEFT JOIN planilla_partido pp ON pp.ci_jugador = ejt.ci_jugador
+    AND pp.id_partido IN (SELECT id_partido FROM partido WHERE id_torneo = ejt.id_torneo)
  WHERE ejt.id_torneo = 1 AND pp.ci_jugador IS NULL
  ORDER BY e.nombre, j.apellido;
 
@@ -109,7 +111,7 @@ SELECT j.ci, j.nombre, j.apellido, e.nombre AS equipo, COUNT(*) AS amarillas
   JOIN jugador j ON j.ci = t.ci_jugador
   JOIN equipo_jugador_torneo ejt ON ejt.ci_jugador = j.ci AND ejt.id_torneo = p.id_torneo
   JOIN equipo e ON e.id_equipo = ejt.id_equipo
- WHERE p.id_torneo = 1 AND t.color = 'amarilla'
+  WHERE p.id_torneo = 1 AND p.estado = 'jugado' AND t.color = 'amarilla'
  GROUP BY j.ci, j.nombre, j.apellido, e.nombre
 HAVING COUNT(*) = 2;
 

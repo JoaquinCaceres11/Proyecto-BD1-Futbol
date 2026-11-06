@@ -140,6 +140,8 @@ def register_partidos_routes(app):
                 flash("Carga la planilla de ambos equipos antes de marcar el partido como jugado.", "error")
             else:
                 ejecutar("UPDATE partido SET estado = 'jugado', fecha_jugado = NOW() WHERE id_partido = %s", (id_partido,), "Partido marcado como jugado.")
+        elif cuenta("SELECT COUNT(*) FROM planilla_partido WHERE id_partido = %s", (id_partido,)) > 0:
+            flash("Quita primero la planilla del partido.", "error")
         else:
             ejecutar("UPDATE partido SET estado = %s WHERE id_partido = %s", (nuevo, id_partido), f"Partido marcado como {nuevo}.")
         return redirect(url_for("partidos"))
