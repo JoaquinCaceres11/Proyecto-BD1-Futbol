@@ -187,3 +187,8 @@ INSERT INTO partido (id_partido,id_torneo,numero_fecha,id_equipo_local,id_equipo
 INSERT INTO partido (id_partido,id_torneo,numero_fecha,id_equipo_local,id_equipo_visitante,dia,id_turno,nombre_cancha,id_complejo,estado,fecha_jugado) VALUES (12,1,4,5,6,'2026-11-02',1,'Cancha B',2,'cancelado',NULL);
 
 INSERT INTO sancion_jugador (ci_jugador, id_torneo, motivo, numero_fecha_inicio, cantidad_fechas) VALUES ('4000303', 1, 'disciplinaria', 4, 2);
+
+INSERT INTO sancion_jugador (ci_jugador, id_torneo, motivo, numero_fecha_inicio, cantidad_fechas) VALUES
+('4000503', 1, 'roja', 2, 1),
+('4000604', 1, 'roja', 4, 1),
+('4000102', 1, 'acumulacion de amarillas', 4, 1);
