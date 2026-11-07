@@ -1,6 +1,6 @@
-from flask import redirect, request, url_for
+from flask import flash, redirect, request, url_for
 from db import consulta, ejecutar
-from helpers import CI_RE, accion, admin, campo, formulario, form_get, opciones, pagina, tabla, validar
+from helpers import CI_RE, accion, admin, campo, fila, formulario, form_get, opciones, pagina, tabla, validar
 
 
 def register_sanciones_routes(app):
@@ -31,6 +31,8 @@ def register_sanciones_routes(app):
         )
         for r in filas:
             r["_acciones"] = [accion("Eliminar", url_for("sancion_eliminar", id_sancion=r["id"]), confirmar=True)]
+            if r["motivo"] == "disciplinaria":
+                r["_acciones"].insert(0, accion("Modificar", url_for("sancion_editar", id_sancion=r["id"]), "get"))
 
         jugadores_op = opciones(
             "SELECT j.ci AS valor, CONCAT(j.apellido, ', ', j.nombre, ' (CI: ', j.ci, ')') AS texto "
@@ -49,6 +51,33 @@ def register_sanciones_routes(app):
                       [tabla("Sanciones (las de roja y amarillas se generan automaticamente)",
                              ["id", "jugador", "torneo", "motivo", "desde_fecha", "cantidad_fechas"], filas, True)])
 
+    
+    @app.route("/sanciones/<int:id_sancion>/editar", methods=["GET", "POST"])
+    @admin
+    def sancion_editar(id_sancion):
+        s = fila("SELECT * FROM sancion_jugador WHERE id_sancion = %s", (id_sancion,))
+        if not s or s["motivo"] != "disciplinaria":
+            flash("Solo se pueden modificar sanciones disciplinarias.", "error")
+            return redirect(url_for("sanciones"))
+
+        if request.method == "POST":
+            ini, cant = form_get("numero_fecha_inicio", "cantidad_fechas")
+            if validar([
+                (ini.isdigit() and int(ini) >= 1, "La fecha de inicio debe ser un numero mayor o igual a 1."),
+                (cant.isdigit() and 1 <= int(cant) <= 20, "La cantidad de fechas debe estar entre 1 y 20."),
+            ]):
+                ejecutar("UPDATE sancion_jugador SET numero_fecha_inicio = %s, cantidad_fechas = %s WHERE id_sancion = %s",
+                         (int(ini), int(cant), id_sancion), "Sancion modificada.")
+                return redirect(url_for("sanciones"))
+            return redirect(url_for("sancion_editar", id_sancion=id_sancion))
+
+        form = formulario("Modificar sancion", url_for("sancion_editar", id_sancion=id_sancion), [
+            campo("numero_fecha_inicio", "Desde la fecha", "number", extra='required min="1"', valor=str(s["numero_fecha_inicio"])),
+            campo("cantidad_fechas", "Cantidad de fechas", "number", extra='required min="1" max="20"', valor=str(s["cantidad_fechas"])),
+        ], "Guardar cambios")
+        return pagina("Modificar sancion", [form])
+    
+    
     @app.route("/sanciones/<int:id_sancion>/eliminar", methods=["POST"])
     @admin
     def sancion_eliminar(id_sancion):
