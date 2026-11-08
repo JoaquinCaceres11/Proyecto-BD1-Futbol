@@ -1,6 +1,6 @@
 from datetime import datetime
 from flask import flash, redirect, request, session, url_for
-from db import consulta, ejecutar
+from db import consulta, ejecutar, transaccion
 from helpers import accion, admin, ambos, campo, cuenta, fila, formulario, form_get, opciones, pagina, tabla, validar
 
 
@@ -82,7 +82,7 @@ def register_partidos_routes(app):
         filas = consulta(
             "SELECT p.id_partido AS id, p.numero_fecha AS fecha, p.dia, CONCAT(t.hora_inicio, '-', t.hora_fin) AS turno, "
             "el.nombre AS local, ev.nombre AS visitante, CONCAT(p.nombre_cancha, ' / ', c.nombre) AS cancha, "
-            "p.estado, CONCAT(r.goles_local, ' - ', r.goles_visitante) AS resultado "
+            "p.estado, COALESCE(CONCAT(r.goles_local, ' - ', r.goles_visitante), '-') AS resultado "
             "FROM partido p JOIN equipo el ON el.id_equipo = p.id_equipo_local JOIN equipo ev ON ev.id_equipo = p.id_equipo_visitante "
             "JOIN turno t ON t.id_turno = p.id_turno JOIN complejo c ON c.id_complejo = p.id_complejo "
             "LEFT JOIN v_resultado_partido r ON r.id_partido = p.id_partido ORDER BY p.numero_fecha, p.dia, t.hora_inicio"
@@ -306,21 +306,20 @@ def register_partidos_routes(app):
             return redirect(url_for("planilla", id_partido=id_partido))
 
         def hacer(p):
-            if not ejecutar("INSERT INTO tarjeta (id_partido, ci_jugador, minuto, color) VALUES (%s,%s,%s,%s)", (id_partido, ci, int(minuto), color)):
-                return
+            sentencias = [("INSERT INTO tarjeta (id_partido, ci_jugador, minuto, color) VALUES (%s,%s,%s,%s)", (id_partido, ci, int(minuto), color))]
             if color == "roja":
-                ejecutar("INSERT INTO sancion_jugador (ci_jugador, id_torneo, motivo, numero_fecha_inicio, cantidad_fechas) VALUES (%s,%s,'roja',%s,1)",
-                         (ci, p["id_torneo"], p["numero_fecha"] + 1))
-                flash("Tarjeta roja registrada (sancion automatica aplicada).", "ok")
+                msj = "Tarjeta roja registrada (sancion automatica aplicada)."
+                sentencias.append(("INSERT INTO sancion_jugador (ci_jugador, id_torneo, motivo, numero_fecha_inicio, cantidad_fechas) VALUES (%s,%s,'roja',%s,1)",
+                                   (ci, p["id_torneo"], p["numero_fecha"] + 1)))
             else:
                 total_am = cuenta("SELECT COUNT(*) FROM tarjeta t JOIN partido pt ON pt.id_partido = t.id_partido WHERE t.ci_jugador = %s AND pt.id_torneo = %s AND t.color = 'amarilla'",
-                                  (ci, p["id_torneo"]))
-                if total_am > 0 and total_am % 3 == 0:
-                    ejecutar("INSERT INTO sancion_jugador (ci_jugador, id_torneo, motivo, numero_fecha_inicio, cantidad_fechas) VALUES (%s,%s,'acumulacion de amarillas',%s,1)",
-                             (ci, p["id_torneo"], p["numero_fecha"] + 1))
-                    flash(f"Amarilla registrada ({total_am} acumuladas). Sancion aplicada por acumulacion.", "ok")
-                else:
-                    flash(f"Amarilla registrada ({total_am} acumuladas).", "ok")
+                                  (ci, p["id_torneo"])) + 1
+                msj = f"Amarilla registrada ({total_am} acumuladas)."
+                if total_am % 3 == 0:
+                    msj += " Sancion aplicada por acumulacion."
+                    sentencias.append(("INSERT INTO sancion_jugador (ci_jugador, id_torneo, motivo, numero_fecha_inicio, cantidad_fechas) VALUES (%s,%s,'acumulacion de amarillas',%s,1)",
+                                       (ci, p["id_torneo"], p["numero_fecha"] + 1)))
+            transaccion(sentencias, msj)
         return _planilla_accion(id_partido, hacer)
 
     @app.route("/partidos/<int:id_partido>/tarjeta/eliminar", methods=["POST"])
@@ -329,16 +328,18 @@ def register_partidos_routes(app):
         id_t = request.form.get("id")
         def hacer(p):
             t = fila("SELECT ci_jugador, color FROM tarjeta WHERE id_tarjeta = %s AND id_partido = %s", (id_t, id_partido))
-            if not t or not ejecutar("DELETE FROM tarjeta WHERE id_tarjeta = %s AND id_partido = %s", (id_t, id_partido)):
+            if not t:
+                flash("La tarjeta no existe.", "error")
                 return
+            sentencias = [("DELETE FROM tarjeta WHERE id_tarjeta = %s AND id_partido = %s", (id_t, id_partido))]
             if t["color"] == "roja":
-                ejecutar("DELETE FROM sancion_jugador WHERE ci_jugador = %s AND id_torneo = %s AND motivo = 'roja' AND numero_fecha_inicio = %s LIMIT 1",
-                         (t["ci_jugador"], p["id_torneo"], p["numero_fecha"] + 1))
+                sentencias.append(("DELETE FROM sancion_jugador WHERE ci_jugador = %s AND id_torneo = %s AND motivo = 'roja' AND numero_fecha_inicio = %s LIMIT 1",
+                                   (t["ci_jugador"], p["id_torneo"], p["numero_fecha"] + 1)))
             else:
                 total_am = cuenta("SELECT COUNT(*) FROM tarjeta t JOIN partido pt ON pt.id_partido = t.id_partido WHERE t.ci_jugador = %s AND pt.id_torneo = %s AND t.color = 'amarilla'",
                                   (t["ci_jugador"], p["id_torneo"]))
-                if total_am % 3 == 2:
-                    ejecutar("DELETE FROM sancion_jugador WHERE ci_jugador = %s AND id_torneo = %s AND motivo = 'acumulacion de amarillas' ORDER BY id_sancion DESC LIMIT 1",
-                             (t["ci_jugador"], p["id_torneo"]))
-            flash("Tarjeta eliminada y sancion revertida si correspondia.", "ok")
+                if total_am % 3 == 0:
+                    sentencias.append(("DELETE FROM sancion_jugador WHERE ci_jugador = %s AND id_torneo = %s AND motivo = 'acumulacion de amarillas' ORDER BY id_sancion DESC LIMIT 1",
+                                       (t["ci_jugador"], p["id_torneo"])))
+            transaccion(sentencias, "Tarjeta eliminada y sancion revertida si correspondia.")
         return _planilla_accion(id_partido, hacer)

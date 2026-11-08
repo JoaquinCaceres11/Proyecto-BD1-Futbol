@@ -54,3 +54,22 @@ def ejecutar(sql, params=None, msj_ok=None):
     finally:
         con.close()
 
+
+
+def transaccion(sentencias, msj_ok=None):
+    """Ejecuta varias sentencias (sql, params) como una sola transaccion: o se guardan todas o ninguna."""
+    con = conectar()
+    try:
+        cur = con.cursor()
+        for sql, params in sentencias:
+            cur.execute(sql, params)
+        con.commit()
+        if msj_ok:
+            flash(msj_ok, "ok")
+        return True
+    except mysql.connector.Error as e:
+        con.rollback()
+        flash(f"No se pudo realizar la operacion: {e.msg}", "error")
+        return False
+    finally:
+        con.close()
